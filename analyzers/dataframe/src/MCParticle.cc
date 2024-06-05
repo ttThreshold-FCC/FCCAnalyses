@@ -53,6 +53,7 @@ ROOT::VecOps::RVec<edm4hep::MCParticleData>  sel_genleps::operator() (ROOT::VecO
   return result;
 }  
 
+
 sel_genlepsfromW::sel_genlepsfromW() {}
 
 ROOT::VecOps::RVec<edm4hep::MCParticleData> sel_genlepsfromW::operator()(
@@ -88,8 +89,6 @@ ROOT::VecOps::RVec<edm4hep::MCParticleData>  sel_lightQuarks::operator() (ROOT::
 }  
   
 
-
-
 get_decay::get_decay(int arg_mother, int arg_daughters, bool arg_inf){m_mother=arg_mother; m_daughters=arg_daughters; m_inf=arg_inf;};
 bool get_decay::operator() (ROOT::VecOps::RVec<edm4hep::MCParticleData> in,  ROOT::VecOps::RVec<int> ind){
 
@@ -110,6 +109,21 @@ bool get_decay::operator() (ROOT::VecOps::RVec<edm4hep::MCParticleData> in,  ROO
   return result;
 }
 
+sel_p::sel_p(float arg_min_p) : m_min_p(arg_min_p)  {};
+ROOT::VecOps::RVec<edm4hep::MCParticleData>  sel_p::operator() (ROOT::VecOps::RVec<edm4hep::MCParticleData> in) {
+  ROOT::VecOps::RVec<edm4hep::MCParticleData> result;
+  result.reserve(in.size());
+  for (size_t i = 0; i < in.size(); ++i) {
+    auto & p = in[i];
+    float momentum = std::sqrt(   std::pow(p.momentum.x,2)
+                                + std::pow(p.momentum.y,2)
+                                + std::pow(p.momentum.z,2) );
+    if ( momentum > m_min_p ) {
+      result.emplace_back(p);
+    }
+  }
+  return result;
+}
 sel_pt::sel_pt(float arg_min_pt) : m_min_pt(arg_min_pt) {};
 ROOT::VecOps::RVec<edm4hep::MCParticleData>  sel_pt::operator() (ROOT::VecOps::RVec<edm4hep::MCParticleData> in) {
   ROOT::VecOps::RVec<edm4hep::MCParticleData> result;
@@ -755,7 +769,7 @@ int get_lepton_origin(const edm4hep::MCParticleData &p,
     for (unsigned j = p.parents_begin; j != p.parents_end; ++j) {
       int index = ind.at(j);
       int pdg_parent = in.at(index).PDG ;
-      // std::cout  << " parent has pdg = " << in.at(index).PDG <<  "  status = " << in.at(index).generatorStatus << std::endl;
+      //      std::cout  << " parent has pdg = " << in.at(index).PDG <<  "  status = " << in.at(index).generatorStatus << std::endl;
 
       if ( abs( pdg_parent ) == 23 || abs( pdg_parent ) == 24 ) {
         result = pdg_parent ;
@@ -826,6 +840,41 @@ ROOT::VecOps::RVec<int> get_leptons_origin(const ROOT::VecOps::RVec<edm4hep::MCP
   return result;
 }
 
+ROOT::VecOps::RVec<edm4hep::MCParticleData> remove(
+  		ROOT::VecOps::RVec<edm4hep::MCParticleData> x,
+  		ROOT::VecOps::RVec<edm4hep::MCParticleData> y) {
+  //to be kept as ROOT::VecOps::RVec
+  std::vector<edm4hep::MCParticleData> result;
+  result.reserve( x.size() );
+  result.insert( result.end(), x.begin(), x.end() );
+  float epsilon = 1e-8;
+  for (size_t i = 0; i < y.size(); ++i) {
+    float mass1 = y.at(i).mass;
+    float px1 = y.at(i).momentum.x;
+    float py1 = y.at(i).momentum.y;
+    float pz1 = y.at(i).momentum.z;
+    for(std::vector<edm4hep::MCParticleData>::iterator
+          it = std::begin(result); it != std::end(result); ++it) {
+      float mass2 = it->mass;
+      float px2 = it->momentum.x;
+      float py2 = it->momentum.y;
+      float pz2 = it->momentum.z;
+      if ( abs(mass1-mass2) < epsilon &&
+	   abs(px1-px2) < epsilon &&
+	   abs(py1-py2) < epsilon &&
+	   abs(pz1-pz2) < epsilon ) {
+	//	std::cout<<"removing"<<std::endl;
+        result.erase(it);
+        break;
+      }
+    }
+  }
+  //  std::cout<<"size of the collection after removing particles"<<result.size()<<std::endl;
+  return ROOT::VecOps::RVec(result);
+}
+
+
+  
 }//end NS MCParticle
 
 }//end NS FCCAnalyses
