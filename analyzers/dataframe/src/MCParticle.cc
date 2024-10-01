@@ -37,6 +37,57 @@ ROOT::VecOps::RVec<edm4hep::MCParticleData>  sel_pdgID::operator() (ROOT::VecOps
   return result;
 }
 
+sel_genleps::sel_genleps(int arg_pdg1,int arg_pdg2, bool arg_chargeconjugate) : m_pdg1(arg_pdg1), m_pdg2(arg_pdg2),m_chargeconjugate( arg_chargeconjugate )  {};
+ROOT::VecOps::RVec<edm4hep::MCParticleData>  sel_genleps::operator() (ROOT::VecOps::RVec<edm4hep::MCParticleData> in) {
+  ROOT::VecOps::RVec<edm4hep::MCParticleData> result;
+  result.reserve(in.size());
+  for (size_t i = 0; i < in.size(); ++i) {
+    auto & p = in[i];
+    if ( m_chargeconjugate ) {
+      if ( (std::abs( p.PDG ) == std::abs( m_pdg1) ) || (std::abs( p.PDG ) == std::abs( m_pdg2 )  ))  result.emplace_back(p);
+    }
+    else {
+        if ( p.PDG == m_pdg1 ||  p.PDG == m_pdg2) result.emplace_back(p);
+    }
+  }
+  return result;
+}  
+
+sel_genlepsfromW::sel_genlepsfromW() {}
+
+ROOT::VecOps::RVec<edm4hep::MCParticleData> sel_genlepsfromW::operator()(
+    const ROOT::VecOps::RVec<edm4hep::MCParticleData>& leptons,
+    const ROOT::VecOps::RVec<int>& mother_pdgIds)
+{
+    ROOT::VecOps::RVec<edm4hep::MCParticleData> result;
+    result.reserve(leptons.size());
+    for (size_t i = 0; i < leptons.size(); ++i) {
+        int mother_pdg = mother_pdgIds[i];
+        if (std::abs(mother_pdg) == 24) {
+            result.emplace_back(leptons[i]);
+        }
+    }
+    return result;
+}
+
+
+sel_lightQuarks::sel_lightQuarks(bool arg_chargeconjugate) : m_chargeconjugate( arg_chargeconjugate )  {};
+ROOT::VecOps::RVec<edm4hep::MCParticleData>  sel_lightQuarks::operator() (ROOT::VecOps::RVec<edm4hep::MCParticleData> in) {
+  ROOT::VecOps::RVec<edm4hep::MCParticleData> result;
+  result.reserve(in.size());
+  for (size_t i = 0; i < in.size(); ++i) {
+    auto & p = in[i];
+    if ( m_chargeconjugate ) {
+      if (std::abs( p.PDG ) < 6)  result.emplace_back(p);
+    }
+    else {
+        if ( p.PDG < 6) result.emplace_back(p);
+    }
+  }
+  return result;
+}  
+  
+
 
 
 get_decay::get_decay(int arg_mother, int arg_daughters, bool arg_inf){m_mother=arg_mother; m_daughters=arg_daughters; m_inf=arg_inf;};
