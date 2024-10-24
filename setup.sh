@@ -26,6 +26,7 @@ if [ "${0}" != "${BASH_SOURCE}" ]; then
   export PYTHONPATH=${LOCAL_DIR}/install/share/examples:${PYTHONPATH}
   export PATH=${LOCAL_DIR}/bin:${PATH}
   export PATH=${LOCAL_DIR}/install/bin:${PATH}
+  export LD_LIBRARY_PATH=${LOCAL_DIR}/install/lib64:${LD_LIBRARY_PATH}
   export LD_LIBRARY_PATH=${LOCAL_DIR}/install/lib:${LD_LIBRARY_PATH}
   export CMAKE_PREFIX_PATH=${LOCAL_DIR}/install:${CMAKE_PREFIX_PATH}
 
@@ -41,6 +42,8 @@ if [ "${0}" != "${BASH_SOURCE}" ]; then
 
   export MANPATH=${LOCAL_DIR}/man:${MANPATH}
   export MANPATH=${LOCAL_DIR}/install/share/man:${MANPATH}
+
+  export MYPYPATH=${LOCAL_DIR}/python:${MYPYPATH}
 
   export FCCDICTSDIR=/cvmfs/fcc.cern.ch/FCCDicts:${FCCDICTSDIR}
 else

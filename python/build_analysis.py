@@ -13,10 +13,10 @@ import logging
 LOGGER = logging.getLogger('FCCAnalyses.build')
 
 
-def run_subprocess(command: str, run_dir: str):
+def run_subprocess(command: str, run_dir: str) -> None:
     '''
-    Run subprocess in specified directory.
-    Check only the return value, otherwise keep the subprocess connected to
+    Run sub-process in specified directory.
+    Check only the return value, otherwise keep the sub-process connected to
     stdin/stout/stderr.
     '''
     try:
@@ -25,6 +25,7 @@ def run_subprocess(command: str, run_dir: str):
 
             if status != 0:
                 LOGGER.error('Error encountered!\nAborting...')
+                os.system('hash -d fccanalysis')
                 sys.exit(3)
 
     except KeyboardInterrupt:
@@ -32,11 +33,11 @@ def run_subprocess(command: str, run_dir: str):
         sys.exit(0)
 
 
-def build_analysis(mainparser):
+def build_analysis(mainparser) -> None:
     '''
     Main build steering function
     '''
-    args, _ = mainparser.parse_known_args()
+    args = mainparser.parse_args()
 
     if 'LOCAL_DIR' not in os.environ:
         LOGGER.error('FCCAnalyses environment not set up correctly!\n'
@@ -46,8 +47,17 @@ def build_analysis(mainparser):
     local_dir = os.environ.get('LOCAL_DIR')
     build_path = pathlib.Path(local_dir + '/build')
     install_path = pathlib.Path(local_dir + '/install')
+    cmake_args: list[str] = ['-DCMAKE_INSTALL_PREFIX=../install',
+                             '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON']
 
     LOGGER.info('Building analysis located in:\n%s', local_dir)
+
+    if args.acts_on:
+        LOGGER.info('Building also ACTS based analyzers...')
+        cmake_args += ['-DWITH_ACTS=ON']
+
+    if args.no_source:
+        cmake_args += ['-DWITH_PODIO_DATASOURCE=OFF']
 
     if args.clean_build:
         LOGGER.info('Clearing build and install directories...')
@@ -60,7 +70,7 @@ def build_analysis(mainparser):
         LOGGER.info('Creating build directory...')
         os.makedirs(build_path)
 
-        run_subprocess(['cmake', '-DCMAKE_INSTALL_PREFIX=../install', '..'],
+        run_subprocess(['cmake'] + cmake_args + ['..'],
                        local_dir + '/build')
 
     if not install_path.is_dir():

@@ -47,6 +47,16 @@ def setup_build_parser(parser):
         default=1,
         help='number of threads when building (equivalent to `make -j`)'
     )
+    build_args.add_argument('--acts-on',
+                            action='store_true',
+                            default=False,
+                            help='enable ACTS based analyzers')
+    build_args.add_argument(
+        '--no-source',
+        action='store_true',
+        default=False,
+        help='do not build EDM4hep RDataSource'
+    )
 
 
 def setup_test_parser(parser):
@@ -119,6 +129,9 @@ def setup_run_parser(parser):
     parser.add_argument('--graph-path', type=str, default='',
                         help='analysis graph save path, should end with '
                         '\'.dot\' or \'.png\'')
+    parser.add_argument(
+        '--use-data-source', action='store_true', default=False,
+        help='use EDM4hep RDataSource to construct dataframe')
 
     # Internal argument, not to be used by the users
     parser.add_argument('--batch', action='store_true', default=False,
@@ -142,14 +155,28 @@ def setup_run_parser_plots(parser):
     '''
     Define command line arguments for the plots sub-command.
     '''
-    parser.add_argument('script_path', help="path to the plots script")
+    parser.add_argument('script_path', help='path to the plots script')
+    parser.add_argument('--input-dir', type=str, default=None,
+                        help='input directory location')
+    parser.add_argument('--output-dir', type=str, default=None,
+                        help='output directory location')
+    parser.add_argument('--legend-text-size', type=float, default=None,
+                        help='text size for the legend elements')
+    parser.add_argument('--legend-x-min', type=float, default=None,
+                        help='minimal x position of the legend')
+    parser.add_argument('--legend-x-max', type=float, default=None,
+                        help='maximal x position of the legend')
+    parser.add_argument('--legend-y-min', type=float, default=None,
+                        help='minimal y position of the legend')
+    parser.add_argument('--legend-y-max', type=float, default=None,
+                        help='maximal y position of the legend')
+
 
 def setup_run_parser_combine(parser):
     '''
     Define command line arguments for the combine sub-command.
     '''
     parser.add_argument('script_path', help="path to the combine script")
-
 
 
 # _____________________________________________________________________________

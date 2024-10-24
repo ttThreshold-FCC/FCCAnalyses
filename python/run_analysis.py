@@ -1,5 +1,5 @@
 '''
-Run regular stage of an analysis
+Run analysis in one of the different styles.
 '''
 
 import os
@@ -14,6 +14,7 @@ import datetime
 import numpy as np
 
 import ROOT  # type: ignore
+import cppyy
 from anascript import get_element, get_element_dict
 from process import get_process_info, get_process_dict
 from frame import generate_graph
@@ -254,7 +255,11 @@ def initialize(args, rdf_module, anapath: str):
     '''
 
     # for convenience and compatibility with user code
-    ROOT.gInterpreter.Declare("using namespace FCCAnalyses;")
+    if args.use_data_source:
+        ROOT.gInterpreter.Declare("using namespace FCCAnalyses::PodioSource;")
+    else:
+        ROOT.gInterpreter.Declare("using namespace FCCAnalyses;")
+
     geometry_file = get_element(rdf_module, "geometryFile")
     readout_name = get_element(rdf_module, "readoutName")
     if geometry_file != "" and readout_name != "":
@@ -331,6 +336,7 @@ def run_rdf(rdf_module,
         for bname in blist:
             branch_list.push_back(bname)
 
+        # Registering Count before Snapshot to avoid additional event loops
         evtcount_final = dframe3.Count()
 
         # Generate computational graph of the analysis
@@ -338,9 +344,9 @@ def run_rdf(rdf_module,
             generate_graph(dframe, args)
 
         dframe3.Snapshot("events", out_file, branch_list)
-    except Exception as excp:
-        LOGGER.error('During the execution of the analysis file exception '
-                     'occurred:\n%s', excp)
+    except cppyy.gbl.std.runtime_error as err:
+        LOGGER.error('%s\nDuring the execution of the analysis script an '
+                     'exception occurred!\nAborting...', err)
         sys.exit(3)
 
     return evtcount_init.GetValue(), evtcount_final.GetValue()
@@ -365,7 +371,7 @@ def send_to_batch(rdf_module, chunk_list, process, anapath: str):
                                 stderr=subprocess.DEVNULL
                                 )
     except subprocess.CalledProcessError:
-        LOGGER.error('The FCCanalyses libraries are not properly build and '
+        LOGGER.error('The FCCAnalyses libraries are not properly build and '
                      'installed!\nAborting job submission...')
         sys.exit(3)
 
@@ -472,8 +478,14 @@ def run_local(rdf_module, infile_list, args):
         filepath = apply_filepath_rewrites(filepath)
 
         file_list.push_back(filepath)
-        info_msg += f'- {filepath}\t\n'
-        infile = ROOT.TFile.Open(filepath, 'READ')
+        info_msg += f'\t- {filepath}\n'
+        try:
+            infile = ROOT.TFile.Open(filepath, 'READ')
+        except OSError as excp:
+            LOGGER.error('While opening input file:\n%s\nan error '
+                         'occurred:\n%s\nAborting...', filepath, excp)
+            sys.exit(3)
+
         try:
             nevents_orig += infile.Get('eventsProcessed').GetVal()
         except AttributeError:
@@ -514,7 +526,7 @@ def run_local(rdf_module, infile_list, args):
     start_time = time.time()
     inn, outn = run_rdf(rdf_module, file_list, outfile_path, args)
     elapsed_time = time.time() - start_time
-    
+
     # replace nevents_local by inn = the amount of processed events
 
     info_msg = f"{' SUMMARY ':=^80}\n"
@@ -690,6 +702,10 @@ def run_histmaker(args, rdf_module, anapath):
     Run the analysis using histmaker (all stages integrated into one).
     '''
 
+    # Check whether to use PODIO ROOT DataSource to load the events
+    if get_element(rdf_module, "useDataSource", False):
+        args.use_data_source = True
+
     # set ncpus, load header files, custom dicts, ...
     initialize(args, rdf_module, anapath)
 
@@ -717,29 +733,41 @@ def run_histmaker(args, rdf_module, anapath):
     evtcounts = []  # event count of the input file
     # number of events processed per process, in a potential previous step
     events_processed_dict = {}
-    for process in process_list:
-        file_list, event_list = get_process_info(
-            process,
-            get_element(rdf_module, "prodTag"),
-            get_element(rdf_module, "inputDir"))
-        if len(file_list) == 0:
-            LOGGER.error('No files to process!\nAborting...')
-            sys.exit(3)
-        fraction = 1
-        output = process
-        chunks = 1
-        try:
-            if get_element_dict(process_list[process], 'fraction') is not None:
-                fraction = get_element_dict(process_list[process], 'fraction')
-            if get_element_dict(process_list[process], 'output') is not None:
-                output = get_element_dict(process_list[process], 'output')
-            if get_element_dict(process_list[process], 'chunks') is not None:
-                chunks = get_element_dict(process_list[process], 'chunks')
-        except TypeError:
-            LOGGER.warning('No values set for process %s will use default '
-                           'values!', process)
-        if fraction < 1:
-            file_list = get_subfile_list(file_list, event_list, fraction)
+    for process_name, process_dict in process_list.items():
+        if args.test:
+            try:
+                if get_element_dict(process_dict, 'testfile') is not None:
+                    file_list = [get_element_dict(process_dict, 'testfile')]
+            except TypeError:
+                LOGGER.warning('No test file for process %s found!\n'
+                               'Aborting...')
+                sys.exit(3)
+            fraction = 1
+            output = process_name
+            chunks = 1
+        else:
+            file_list, event_list = get_process_info(
+                process_name,
+                get_element(rdf_module, "prodTag"),
+                get_element(rdf_module, "inputDir"))
+            if len(file_list) == 0:
+                LOGGER.error('No files to process!\nAborting...')
+                sys.exit(3)
+            fraction = 1
+            output = process_name
+            chunks = 1
+            try:
+                if get_element_dict(process_dict, 'fraction') is not None:
+                    fraction = get_element_dict(process_dict, 'fraction')
+                if get_element_dict(process_dict, 'output') is not None:
+                    output = get_element_dict(process_dict, 'output')
+                if get_element_dict(process_dict, 'chunks') is not None:
+                    chunks = get_element_dict(process_dict, 'chunks')
+            except TypeError:
+                LOGGER.warning('No values set for process %s will use default '
+                               'values!', process_name)
+            if fraction < 1:
+                file_list = get_subfile_list(file_list, event_list, fraction)
 
         # get the number of events processed, in a potential previous step
         file_list_root = ROOT.vector('string')()
@@ -747,7 +775,8 @@ def run_histmaker(args, rdf_module, anapath):
         # stage)
         nevents_meta = 0
         for file_name in file_list:
-            file_name = apply_filepath_rewrites(file_name)
+            if not args.use_data_source:
+                file_name = apply_filepath_rewrites(file_name)
             file_list_root.push_back(file_name)
             # Skip check for processed events in case of first stage
             if get_element(rdf_module, "prodTag") is None:
@@ -759,17 +788,39 @@ def run_histmaker(args, rdf_module, anapath):
                 infile.Close()
             if args.test:
                 break
-        events_processed_dict[process] = nevents_meta
-        info_msg = f'Add process "{process}" with:'
+        events_processed_dict[process_name] = nevents_meta
+        info_msg = f'Add process "{process_name}" with:'
         info_msg += f'\n\tfraction = {fraction}'
         info_msg += f'\n\tnFiles = {len(file_list_root):,}'
         info_msg += f'\n\toutput = {output}\n\tchunks = {chunks}'
         LOGGER.info(info_msg)
 
-        dframe = ROOT.ROOT.RDataFrame("events", file_list_root)
+        if args.use_data_source:
+            if ROOT.podio.DataSource:
+                LOGGER.debug('Found Podio ROOT DataSource.')
+            else:
+                LOGGER.error('Podio ROOT DataSource library not found!'
+                             '\nAborting...')
+                sys.exit(3)
+            LOGGER.info('Loading events through podio::DataSource...')
+
+            try:
+                dframe = ROOT.podio.CreateDataFrame(file_list_root)
+            except TypeError as excp:
+                LOGGER.error('Unable to build dataframe using '
+                             'podio::DataSource!\n%s', excp)
+                sys.exit(3)
+        else:
+            dframe = ROOT.ROOT.RDataFrame("events", file_list_root)
         evtcount = dframe.Count()
 
-        res, hweight = graph_function(dframe, process)
+        try:
+            res, hweight = graph_function(dframe, process_name)
+        except cppyy.gbl.std.runtime_error:
+            LOGGER.error('During loading of the analysis an error occurred!'
+                         '\nAborting...')
+            sys.exit(3)
+
         results.append(res)
         hweights.append(hweight)
         evtcounts.append(evtcount)
@@ -872,7 +923,11 @@ def run(parser):
     Set things in motion.
     '''
 
-    args, _ = parser.parse_known_args()
+    args, unknown_args = parser.parse_known_args()
+    # Add unknown arguments including unknown input files
+    unknown_args += [x for x in args.files_list if not x.endswith('.root')]
+    args.unknown = unknown_args
+    args.files_list = [x for x in args.files_list if x.endswith('.root')]
 
     if not hasattr(args, 'command'):
         LOGGER.error('Error occurred during subcommand routing!\nAborting...')
@@ -881,6 +936,9 @@ def run(parser):
     if args.command != 'run':
         LOGGER.error('Unknow sub-command "%s"!\nAborting...')
         sys.exit(3)
+
+    # Work with absolute path of the analysis script
+    anapath = os.path.abspath(args.anascript_path)
 
     # Check that the analysis file exists
     anapath = args.anascript_path
@@ -922,32 +980,47 @@ def run(parser):
 
     # Load the analysis script as a module
     anapath = os.path.abspath(anapath)
-    LOGGER.info('Loading analysis file:\n%s', anapath)
-    rdf_spec = importlib.util.spec_from_file_location("rdfanalysis",
-                                                      anapath)
-    rdf_module = importlib.util.module_from_spec(rdf_spec)
-    rdf_spec.loader.exec_module(rdf_module)
+    LOGGER.info('Loading analysis script:\n%s', anapath)
+    try:
+        rdf_spec = importlib.util.spec_from_file_location('rdfanalysis',
+                                                          anapath)
+        rdf_module = importlib.util.module_from_spec(rdf_spec)
+        rdf_spec.loader.exec_module(rdf_module)
+    except SyntaxError as err:
+        LOGGER.error('Syntax error encountered in the analysis script:\n%s',
+                     err)
+        sys.exit(3)
 
     # Merge configuration from analysis script file with command line arguments
-    if get_element(rdf_module, 'graph'):
+    if get_element(rdf_module, 'graph', False):
         args.graph = True
 
     if get_element(rdf_module, 'graphPath') != '':
         args.graph_path = get_element(rdf_module, 'graphPath')
 
-    if hasattr(rdf_module, "build_graph") and \
-            hasattr(rdf_module, "RDFanalysis"):
-        LOGGER.error('Analysis file ambiguous!\nBoth "RDFanalysis" '
-                     'class and "build_graph" function are defined.')
+    n_ana_styles = 0
+    for analysis_style in ["build_graph", "RDFanalysis", "Analysis"]:
+        if hasattr(rdf_module, analysis_style):
+            LOGGER.debug("Analysis style found: %s", analysis_style)
+            n_ana_styles += 1
+
+    if n_ana_styles == 0:
+        LOGGER.error('Analysis file does not contain required objects!\n'
+                     'Provide either RDFanalysis class, Analysis class, or '
+                     'build_graph function.')
         sys.exit(3)
-    elif hasattr(rdf_module, "build_graph") and \
-            not hasattr(rdf_module, "RDFanalysis"):
-        run_histmaker(args, rdf_module, anapath)
-    elif not hasattr(rdf_module, "build_graph") and \
-            hasattr(rdf_module, "RDFanalysis"):
+
+    if n_ana_styles > 1:
+        LOGGER.error('Analysis file ambiguous!\n'
+                     'Multiple analysis styles used!\n'
+                     'Provide only one out of "RDFanalysis", "Analysis", '
+                     'or "build_graph".')
+        sys.exit(3)
+
+    if hasattr(rdf_module, "Analysis"):
+        from run_fccanalysis import run_fccanalysis
+        run_fccanalysis(args, rdf_module)
+    if hasattr(rdf_module, "RDFanalysis"):
         run_stages(args, rdf_module, anapath)
-    else:
-        LOGGER.error('Analysis file does not contain required '
-                     'objects!\nProvide either "RDFanalysis" class or '
-                     '"build_graph" function.')
-        sys.exit(3)
+    if hasattr(rdf_module, "build_graph"):
+        run_histmaker(args, rdf_module, anapath)
